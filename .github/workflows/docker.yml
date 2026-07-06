@@ -2,18 +2,33 @@
 name: "Publish Docker image"
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: "0 0 * * 0"
   push:
     branches:
       - master
 
+env:
+  IMAGE_NAME: ${{ github.event.repository.name }}
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
-      - uses: mback2k/action-docker-package@master
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
         with:
-          registry_password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ secrets.SWR_REGISTRY }}
+          username: ${{ secrets.SWR_USERNAME }}
+          password: ${{ secrets.SWR_PASSWORD }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.SWR_REGISTRY }}/${{ secrets.SWR_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+            ${{ secrets.SWR_REGISTRY }}/${{ secrets.SWR_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 ...
