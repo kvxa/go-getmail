@@ -20,6 +20,7 @@ package main
 
 import (
 	"os"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -45,7 +46,9 @@ type configBroker struct {
 }
 
 type config struct {
-	Accounts []*fetchConfig
+	DeleteSource   bool
+	ArchiveMailbox string
+	Accounts       []*fetchConfig
 
 	Logging *configLogging
 	Metrics *configMetrics
@@ -57,6 +60,12 @@ type config struct {
 func loadConfig() (*config, error) {
 	vpr := viper.GetViper()
 	vpr.SetConfigName("go-getmail")
+	vpr.SetDefault("DeleteSource", true)
+	vpr.SetDefault("ArchiveMailbox", "Archive")
+	vpr.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	vpr.AutomaticEnv()
+	vpr.BindEnv("DeleteSource", "DELETE_SOURCE")
+	vpr.BindEnv("ArchiveMailbox", "ARCHIVE_MAILBOX")
 	vpr.AddConfigPath("/etc/go-getmail/")
 	vpr.AddConfigPath("$HOME/.go-getmail")
 	vpr.AddConfigPath(".")
@@ -73,6 +82,10 @@ func loadConfig() (*config, error) {
 	err = vpr.UnmarshalExact(&cfg)
 	if err != nil {
 		return nil, err
+	}
+	for _, account := range cfg.Accounts {
+		account.DeleteSource = cfg.DeleteSource
+		account.ArchiveMailbox = cfg.ArchiveMailbox
 	}
 	return &cfg, nil
 }

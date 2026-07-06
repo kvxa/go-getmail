@@ -74,9 +74,11 @@ const (
 )
 
 type fetchConfig struct {
-	Name   string
-	Source fetchSource
-	Target fetchTarget
+	Name           string
+	DeleteSource   bool
+	ArchiveMailbox string
+	Source         fetchSource
+	Target         fetchTarget
 
 	state fetchState
 	total uint64
@@ -287,17 +289,17 @@ func (c *fetchConfig) handle() error {
 	defer c.Target.closeIMAP()
 
 	messages := make(chan *imap.Message, 100)
-	deletes := make(chan uint32, 100)
+	processed := make(chan uint32, 100)
 
 	var g errgroup.Group
 	g.Go(func() error {
 		return c.Source.fetchMessages(messages)
 	})
 	g.Go(func() error {
-		return c.Target.storeMessages(messages, deletes)
+		return c.Target.storeMessages(messages, processed)
 	})
 	g.Go(func() error {
-		return c.Source.cleanMessages(deletes)
+		return c.Source.cleanMessages(processed)
 	})
 
 	err = g.Wait()
@@ -306,10 +308,12 @@ func (c *fetchConfig) handle() error {
 		return err
 	}
 
-	err = c.Source.imapconn.Expunge(nil)
-	if err != nil {
-		c.log().Warnf("Message expunge failed: %v", err)
-		return err
+	if c.DeleteSource {
+		err = c.Source.imapconn.Expunge(nil)
+		if err != nil {
+			c.log().Warnf("Message expunge failed: %v", err)
+			return err
+		}
 	}
 
 	c.log().Info("Message handling finished")
@@ -335,8 +339,8 @@ func (s *fetchSource) fetchMessages(messages chan *imap.Message) error {
 		"UID", "FLAGS", "INTERNALDATE", "BODY[]"}, messages)
 }
 
-func (t *fetchTarget) storeMessages(messages <-chan *imap.Message, deletes chan<- uint32) error {
-	defer close(deletes)
+func (t *fetchTarget) storeMessages(messages <-chan *imap.Message, processed chan<- uint32) error {
+	defer close(processed)
 
 	section, err := imap.ParseBodySectionName("BODY[]")
 	if err != nil {
@@ -380,17 +384,15 @@ func (t *fetchTarget) storeMessages(messages <-chan *imap.Message, deletes chan<
 		}
 
 		t.config.total++
-		deletes <- msg.Uid
+		processed <- msg.Uid
 	}
 
 	return nil
 }
 
-func (s *fetchSource) cleanMessages(deletes <-chan uint32) error {
+func (s *fetchSource) cleanMessages(processed <-chan uint32) error {
 	seqset := new(imap.SeqSet)
-	for uid := range deletes {
-		s.config.log().Infof("Deleting message: %d", uid)
-
+	for uid := range processed {
 		seqset.AddNum(uid)
 	}
 
@@ -398,6 +400,12 @@ func (s *fetchSource) cleanMessages(deletes <-chan uint32) error {
 		return nil
 	}
 
+	if !s.config.DeleteSource {
+		s.config.log().Infof("Archiving source messages to %s", s.config.ArchiveMailbox)
+		return s.imapconn.UidMove(seqset, s.config.ArchiveMailbox)
+	}
+
+	s.config.log().Info("Deleting source messages")
 	return s.imapconn.UidStore(seqset, imap.AddFlags,
 		[]interface{}{imap.DeletedFlag}, nil)
 }

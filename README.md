@@ -38,6 +38,9 @@ Configuration
 The following YAML file is an example configuration with one transfer to be handled:
 
 ```
+DeleteSource: true
+ArchiveMailbox: Archive
+
 Accounts:
 
 - Name: Test account
@@ -56,6 +59,10 @@ Accounts:
 ```
 
 You can have multiple accounts handled by repeating the `- Name: ...` section.
+Set `DeleteSource` to `false` to move messages to `ArchiveMailbox` in the
+source mailbox after they have been copied to the target mailbox. These options
+can be overridden with environment variables, for example `DELETE_SOURCE=false`
+or `ARCHIVE_MAILBOX=Archive` when running in Docker.
 
 Save this file in one of the following locations and run `./go-getmail`:
 
