@@ -20,6 +20,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -86,8 +87,25 @@ type fetchConfig struct {
 	total uint64
 	ctx   context.Context
 
-	mqttopts *mqtt.ClientOptions
-	mqttlock *sync.Mutex
+	notifier        *notifier
+	failureCount    int
+	alerting        bool
+	lastConnectWarn time.Time
+	lastHandleWarn  time.Time
+	mqttopts        *mqtt.ClientOptions
+	mqttlock        *sync.Mutex
+}
+
+type messageHandlingError struct {
+	err error
+}
+
+func (e messageHandlingError) Error() string {
+	return e.err.Error()
+}
+
+func (e messageHandlingError) Unwrap() error {
+	return e.err
 }
 
 func (s *FetchServer) open() (*client.Client, error) {
@@ -260,7 +278,7 @@ func (c *fetchConfig) watch() error {
 			if ok {
 				err := c.handle()
 				if err != nil {
-					return err
+					return messageHandlingError{err: err}
 				}
 			}
 		case err := <-errors:
@@ -453,14 +471,20 @@ func (c *fetchConfig) run() error {
 		err := c.init()
 		if err != nil {
 			c.log().Error(err)
+			c.notifyConnectionFailure(err)
 			c.close()
 			c.waitReconnect()
 			continue
 		}
+		c.notifyConnectionRecovered()
 
 		err = c.watch()
 		if err != nil {
 			c.log().Error(err)
+			var handlingErr messageHandlingError
+			if errors.As(err, &handlingErr) {
+				c.notifyMessageHandlingFailure(handlingErr.err)
+			}
 		}
 		c.close()
 		c.waitReconnect()

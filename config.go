@@ -45,6 +45,17 @@ type configBroker struct {
 	Password string
 }
 
+type configNotify struct {
+	FailureThreshold int
+	CooldownSeconds  int
+	DingTalk         *configNotifyDingTalk
+}
+
+type configNotifyDingTalk struct {
+	WebhookUrl string
+	Secret     string
+}
+
 type config struct {
 	DeleteSource   bool
 	ArchiveMailbox string
@@ -54,6 +65,7 @@ type config struct {
 	Logging *configLogging
 	Metrics *configMetrics
 	Rollbar *configRollbar
+	Notify  *configNotify
 
 	Broker *configBroker
 }
@@ -64,11 +76,17 @@ func loadConfig() (*config, error) {
 	vpr.SetDefault("DeleteSource", true)
 	vpr.SetDefault("ArchiveMailbox", "Archive")
 	vpr.SetDefault("ReconnectDelay", 30)
+	vpr.SetDefault("Notify.FailureThreshold", 3)
+	vpr.SetDefault("Notify.CooldownSeconds", 1800)
 	vpr.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	vpr.AutomaticEnv()
 	vpr.BindEnv("DeleteSource", "DELETE_SOURCE")
 	vpr.BindEnv("ArchiveMailbox", "ARCHIVE_MAILBOX")
 	vpr.BindEnv("ReconnectDelay", "RECONNECT_DELAY")
+	vpr.BindEnv("Notify.FailureThreshold", "NOTIFY_FAILURE_THRESHOLD")
+	vpr.BindEnv("Notify.CooldownSeconds", "NOTIFY_COOLDOWN_SECONDS")
+	vpr.BindEnv("Notify.DingTalk.WebhookUrl", "DINGTALK_WEBHOOK_URL")
+	vpr.BindEnv("Notify.DingTalk.Secret", "DINGTALK_SECRET")
 	vpr.AddConfigPath("/etc/go-getmail/")
 	vpr.AddConfigPath("$HOME/.go-getmail")
 	vpr.AddConfigPath(".")

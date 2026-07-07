@@ -42,6 +42,13 @@ DeleteSource: true
 ArchiveMailbox: Archive
 ReconnectDelay: 30
 
+Notify:
+  FailureThreshold: 3
+  CooldownSeconds: 1800
+  DingTalk:
+    WebhookUrl: https://oapi.dingtalk.com/robot/send?access_token=your-access-token
+    Secret: your-signing-secret
+
 Accounts:
 
 - Name: Test account
@@ -66,6 +73,11 @@ can be overridden with environment variables, for example `DELETE_SOURCE=false`
 or `ARCHIVE_MAILBOX=Archive` when running in Docker.
 `ReconnectDelay` controls how many seconds to wait before reconnecting after an
 IMAP IDLE connection closes, and can be overridden with `RECONNECT_DELAY`.
+Connection failure, recovery, and message handling failure notifications can be
+sent to a DingTalk custom robot by setting `Notify.DingTalk.WebhookUrl` and
+`Notify.DingTalk.Secret`. These options can be overridden with
+`DINGTALK_WEBHOOK_URL`, `DINGTALK_SECRET`, `NOTIFY_FAILURE_THRESHOLD`, and
+`NOTIFY_COOLDOWN_SECONDS`.
 
 Save this file in one of the following locations and run `./go-getmail`:
 

@@ -79,8 +79,10 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	notify := newNotifier(cfg.Notify)
 	for _, c := range cfg.Accounts {
 		c.ctx = ctx
+		c.notifier = notify
 		c.mqttopts = mqttopts
 		c.mqttlock = mqttlock
 		c.log().Infof("%s --> %s", c.Source.Server, c.Target.Server)
