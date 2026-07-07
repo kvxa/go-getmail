@@ -20,6 +20,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,6 +78,7 @@ type fetchConfig struct {
 	Name           string
 	DeleteSource   bool
 	ArchiveMailbox string
+	ReconnectDelay int
 	Source         fetchSource
 	Target         fetchTarget
 
@@ -195,11 +197,13 @@ func (s *FetchServer) closeIMAP() error {
 	if s.imapconn == nil {
 		return nil
 	}
+	defer func() {
+		s.imapconn = nil
+	}()
 	err := s.imapconn.Logout()
 	if err != nil {
 		return err
 	}
-	s.imapconn = nil
 	return nil
 }
 
@@ -207,30 +211,30 @@ func (s *fetchSource) closeIDLE() error {
 	if s.idleconn == nil {
 		return nil
 	}
+	defer func() {
+		s.idleconn = nil
+	}()
 	err := s.idleconn.Logout()
 	if err != nil {
 		return err
 	}
-	s.idleconn = nil
 	return nil
 }
 
 func (c *fetchConfig) close() error {
 	c.state = shutdownState
-	err := c.Source.closeIDLE()
-	if err != nil {
-		return err
+	var firstErr error
+	if err := c.Source.closeIDLE(); err != nil && firstErr == nil {
+		firstErr = err
 	}
-	err = c.Source.closeIMAP()
-	if err != nil {
-		return err
+	if err := c.Source.closeIMAP(); err != nil && firstErr == nil {
+		firstErr = err
 	}
-	err = c.Target.closeIMAP()
-	if err != nil {
-		return err
+	if err := c.Target.closeIMAP(); err != nil && firstErr == nil {
+		firstErr = err
 	}
 	c.state = initialState
-	return nil
+	return firstErr
 }
 
 func (c *fetchConfig) watch() error {
@@ -402,6 +406,19 @@ func (s *fetchSource) cleanMessages(processed <-chan uint32) error {
 
 	if !s.config.DeleteSource {
 		s.config.log().Infof("Archiving source messages to %s", s.config.ArchiveMailbox)
+		err := s.imapconn.UidMove(seqset, s.config.ArchiveMailbox)
+		if err == nil {
+			return nil
+		}
+		if !isMissingMailboxError(err) {
+			return err
+		}
+
+		s.config.log().Warnf("Archive mailbox missing, creating %s", s.config.ArchiveMailbox)
+		err = s.imapconn.Create(s.config.ArchiveMailbox)
+		if err != nil && !isMailboxExistsError(err) {
+			return err
+		}
 		return s.imapconn.UidMove(seqset, s.config.ArchiveMailbox)
 	}
 
@@ -410,19 +427,60 @@ func (s *fetchSource) cleanMessages(processed <-chan uint32) error {
 		[]interface{}{imap.DeletedFlag}, nil)
 }
 
+func isMissingMailboxError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "not exist") ||
+		strings.Contains(msg, "unknown mailbox") ||
+		strings.Contains(msg, "unknown folder")
+}
+
+func isMailboxExistsError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already exists") ||
+		strings.Contains(msg, "mailbox exists") ||
+		strings.Contains(msg, "folder exists")
+}
+
 func (c *fetchConfig) run() error {
-	err := c.init()
-	if err != nil {
-		c.log().Error(err)
-		return err
+	for {
+		select {
+		case <-c.ctx.Done():
+			return c.ctx.Err()
+		default:
+		}
+
+		err := c.init()
+		if err != nil {
+			c.log().Error(err)
+			c.close()
+			c.waitReconnect()
+			continue
+		}
+
+		err = c.watch()
+		if err != nil {
+			c.log().Error(err)
+		}
+		c.close()
+		c.waitReconnect()
 	}
-	defer c.close()
-	err = c.watch()
-	if err != nil {
-		c.log().Error(err)
-		return err
+}
+
+func (c *fetchConfig) waitReconnect() {
+	delay := time.Duration(c.ReconnectDelay) * time.Second
+	if delay < time.Second {
+		delay = time.Second
 	}
-	return nil
+	c.log().Infof("Reconnecting in %s", delay)
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-c.ctx.Done():
+	case <-timer.C:
+	}
 }
 
 func (c *fetchConfig) log() *log.Entry {

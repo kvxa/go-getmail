@@ -24,8 +24,6 @@ import (
 	"runtime"
 	"sync"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/heroku/rollrus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -81,17 +79,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	g, ctx := errgroup.WithContext(ctx)
 	for _, c := range cfg.Accounts {
 		c.ctx = ctx
 		c.mqttopts = mqttopts
 		c.mqttlock = mqttlock
 		c.log().Infof("%s --> %s", c.Source.Server, c.Target.Server)
-		g.Go(c.run)
+		go c.run()
 	}
 
-	err = g.Wait()
-	if err != nil {
-		log.Fatal(err)
-	}
+	<-ctx.Done()
 }

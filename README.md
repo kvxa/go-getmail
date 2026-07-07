@@ -40,6 +40,7 @@ The following YAML file is an example configuration with one transfer to be hand
 ```
 DeleteSource: true
 ArchiveMailbox: Archive
+ReconnectDelay: 30
 
 Accounts:
 
@@ -63,6 +64,8 @@ Set `DeleteSource` to `false` to move messages to `ArchiveMailbox` in the
 source mailbox after they have been copied to the target mailbox. These options
 can be overridden with environment variables, for example `DELETE_SOURCE=false`
 or `ARCHIVE_MAILBOX=Archive` when running in Docker.
+`ReconnectDelay` controls how many seconds to wait before reconnecting after an
+IMAP IDLE connection closes, and can be overridden with `RECONNECT_DELAY`.
 
 Save this file in one of the following locations and run `./go-getmail`:
 

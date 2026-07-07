@@ -48,6 +48,7 @@ type configBroker struct {
 type config struct {
 	DeleteSource   bool
 	ArchiveMailbox string
+	ReconnectDelay int
 	Accounts       []*fetchConfig
 
 	Logging *configLogging
@@ -62,10 +63,12 @@ func loadConfig() (*config, error) {
 	vpr.SetConfigName("go-getmail")
 	vpr.SetDefault("DeleteSource", true)
 	vpr.SetDefault("ArchiveMailbox", "Archive")
+	vpr.SetDefault("ReconnectDelay", 30)
 	vpr.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	vpr.AutomaticEnv()
 	vpr.BindEnv("DeleteSource", "DELETE_SOURCE")
 	vpr.BindEnv("ArchiveMailbox", "ARCHIVE_MAILBOX")
+	vpr.BindEnv("ReconnectDelay", "RECONNECT_DELAY")
 	vpr.AddConfigPath("/etc/go-getmail/")
 	vpr.AddConfigPath("$HOME/.go-getmail")
 	vpr.AddConfigPath(".")
@@ -86,6 +89,7 @@ func loadConfig() (*config, error) {
 	for _, account := range cfg.Accounts {
 		account.DeleteSource = cfg.DeleteSource
 		account.ArchiveMailbox = cfg.ArchiveMailbox
+		account.ReconnectDelay = cfg.ReconnectDelay
 	}
 	return &cfg, nil
 }
