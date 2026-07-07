@@ -49,11 +49,18 @@ type configNotify struct {
 	FailureThreshold int
 	CooldownSeconds  int
 	DingTalk         *configNotifyDingTalk
+	Telegram         *configNotifyTelegram
 }
 
 type configNotifyDingTalk struct {
 	WebhookUrl string
 	Secret     string
+}
+
+type configNotifyTelegram struct {
+	BotToken    string
+	ChatId      string
+	ApiEndpoint string
 }
 
 type config struct {
@@ -87,6 +94,9 @@ func loadConfig() (*config, error) {
 	vpr.BindEnv("Notify.CooldownSeconds", "NOTIFY_COOLDOWN_SECONDS")
 	vpr.BindEnv("Notify.DingTalk.WebhookUrl", "DINGTALK_WEBHOOK_URL")
 	vpr.BindEnv("Notify.DingTalk.Secret", "DINGTALK_SECRET")
+	vpr.BindEnv("Notify.Telegram.BotToken", "TELEGRAM_BOT_TOKEN")
+	vpr.BindEnv("Notify.Telegram.ChatId", "TELEGRAM_CHAT_ID")
+	vpr.BindEnv("Notify.Telegram.ApiEndpoint", "TELEGRAM_API_ENDPOINT")
 	vpr.AddConfigPath("/etc/go-getmail/")
 	vpr.AddConfigPath("$HOME/.go-getmail")
 	vpr.AddConfigPath(".")
@@ -104,10 +114,45 @@ func loadConfig() (*config, error) {
 	if err != nil {
 		return nil, err
 	}
+	normalizeNotifyConfig(vpr, &cfg)
 	for _, account := range cfg.Accounts {
 		account.DeleteSource = cfg.DeleteSource
 		account.ArchiveMailbox = cfg.ArchiveMailbox
 		account.ReconnectDelay = cfg.ReconnectDelay
 	}
 	return &cfg, nil
+}
+
+func normalizeNotifyConfig(vpr *viper.Viper, cfg *config) {
+	dingTalkWebhook := vpr.GetString("Notify.DingTalk.WebhookUrl")
+	dingTalkSecret := vpr.GetString("Notify.DingTalk.Secret")
+	telegramBotToken := vpr.GetString("Notify.Telegram.BotToken")
+	telegramChatId := vpr.GetString("Notify.Telegram.ChatId")
+	telegramApiEndpoint := vpr.GetString("Notify.Telegram.ApiEndpoint")
+
+	if cfg.Notify == nil &&
+		(dingTalkWebhook != "" || dingTalkSecret != "" ||
+			telegramBotToken != "" || telegramChatId != "" || telegramApiEndpoint != "") {
+		cfg.Notify = &configNotify{}
+	}
+	if cfg.Notify == nil {
+		return
+	}
+
+	cfg.Notify.FailureThreshold = vpr.GetInt("Notify.FailureThreshold")
+	cfg.Notify.CooldownSeconds = vpr.GetInt("Notify.CooldownSeconds")
+
+	if dingTalkWebhook != "" || dingTalkSecret != "" {
+		cfg.Notify.DingTalk = &configNotifyDingTalk{
+			WebhookUrl: dingTalkWebhook,
+			Secret:     dingTalkSecret,
+		}
+	}
+	if telegramBotToken != "" || telegramChatId != "" || telegramApiEndpoint != "" {
+		cfg.Notify.Telegram = &configNotifyTelegram{
+			BotToken:    telegramBotToken,
+			ChatId:      telegramChatId,
+			ApiEndpoint: telegramApiEndpoint,
+		}
+	}
 }

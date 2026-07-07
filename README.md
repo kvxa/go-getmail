@@ -48,6 +48,10 @@ Notify:
   DingTalk:
     WebhookUrl: https://oapi.dingtalk.com/robot/send?access_token=your-access-token
     Secret: your-signing-secret
+  Telegram:
+    BotToken: your-bot-token
+    ChatId: your-chat-id
+    ApiEndpoint: https://api.telegram.org
 
 Accounts:
 
@@ -74,9 +78,12 @@ or `ARCHIVE_MAILBOX=Archive` when running in Docker.
 `ReconnectDelay` controls how many seconds to wait before reconnecting after an
 IMAP IDLE connection closes, and can be overridden with `RECONNECT_DELAY`.
 Connection failure, recovery, and message handling failure notifications can be
-sent to a DingTalk custom robot by setting `Notify.DingTalk.WebhookUrl` and
-`Notify.DingTalk.Secret`. These options can be overridden with
-`DINGTALK_WEBHOOK_URL`, `DINGTALK_SECRET`, `NOTIFY_FAILURE_THRESHOLD`, and
+sent to DingTalk and Telegram robots. DingTalk uses `Notify.DingTalk.WebhookUrl`
+and `Notify.DingTalk.Secret`. Telegram uses `Notify.Telegram.BotToken`,
+`Notify.Telegram.ChatId`, and optional `Notify.Telegram.ApiEndpoint` for a
+custom Bot API endpoint. These options can be overridden with
+`DINGTALK_WEBHOOK_URL`, `DINGTALK_SECRET`, `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_CHAT_ID`, `TELEGRAM_API_ENDPOINT`, `NOTIFY_FAILURE_THRESHOLD`, and
 `NOTIFY_COOLDOWN_SECONDS`.
 
 Save this file in one of the following locations and run `./go-getmail`:

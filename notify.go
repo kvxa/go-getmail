@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -20,7 +21,7 @@ type notifier struct {
 }
 
 func newNotifier(config *configNotify) *notifier {
-	if config == nil || config.DingTalk == nil || config.DingTalk.WebhookUrl == "" {
+	if config == nil || (!hasDingTalk(config) && !hasTelegram(config)) {
 		return nil
 	}
 
@@ -51,7 +52,40 @@ func (n *notifier) notify(ctx context.Context, subject, message string) error {
 		return nil
 	}
 
-	webhookURL, err := n.signedWebhookURL()
+	var errs []error
+	successes := 0
+	if hasDingTalk(n.config) {
+		if err := n.notifyDingTalk(ctx, subject, message); err != nil {
+			errs = append(errs, fmt.Errorf("dingtalk: %w", err))
+		} else {
+			successes++
+		}
+	}
+	if hasTelegram(n.config) {
+		if err := n.notifyTelegram(ctx, subject, message); err != nil {
+			errs = append(errs, fmt.Errorf("telegram: %w", err))
+		} else {
+			successes++
+		}
+	}
+	if successes > 0 {
+		return nil
+	}
+
+	return errors.Join(errs...)
+}
+
+func hasDingTalk(config *configNotify) bool {
+	return config != nil && config.DingTalk != nil && config.DingTalk.WebhookUrl != ""
+}
+
+func hasTelegram(config *configNotify) bool {
+	return config != nil && config.Telegram != nil &&
+		config.Telegram.BotToken != "" && config.Telegram.ChatId != ""
+}
+
+func (n *notifier) notifyDingTalk(ctx context.Context, subject, message string) error {
+	webhookURL, err := n.signedDingTalkWebhookURL()
 	if err != nil {
 		return err
 	}
@@ -96,7 +130,7 @@ func (n *notifier) notify(ctx context.Context, subject, message string) error {
 	return nil
 }
 
-func (n *notifier) signedWebhookURL() (string, error) {
+func (n *notifier) signedDingTalkWebhookURL() (string, error) {
 	webhookURL, err := url.Parse(n.config.DingTalk.WebhookUrl)
 	if err != nil {
 		return "", err
@@ -119,6 +153,53 @@ func (n *notifier) signedWebhookURL() (string, error) {
 	webhookURL.RawQuery = query.Encode()
 
 	return webhookURL.String(), nil
+}
+
+func (n *notifier) notifyTelegram(ctx context.Context, subject, message string) error {
+	endpoint := n.config.Telegram.ApiEndpoint
+	if endpoint == "" {
+		endpoint = "https://api.telegram.org"
+	}
+	endpoint = strings.TrimRight(endpoint, "/")
+
+	apiURL := endpoint + "/bot" + n.config.Telegram.BotToken + "/sendMessage"
+	body := map[string]any{
+		"chat_id": n.config.Telegram.ChatId,
+		"text":    subject + "\n\n" + message,
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := n.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		OK          bool   `json:"ok"`
+		ErrorCode   int    `json:"error_code"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return err
+	}
+	if !result.OK {
+		return fmt.Errorf("telegram ok=false error_code=%d description=%s", result.ErrorCode, result.Description)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func singleLineError(err error) string {
