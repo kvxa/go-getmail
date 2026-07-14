@@ -67,6 +67,7 @@ type config struct {
 	DeleteSource   bool
 	ArchiveMailbox string
 	ReconnectDelay int
+	HandleDelay    int
 	Accounts       []*fetchConfig
 
 	Logging *configLogging
@@ -83,6 +84,7 @@ func loadConfig() (*config, error) {
 	vpr.SetDefault("DeleteSource", true)
 	vpr.SetDefault("ArchiveMailbox", "Archive")
 	vpr.SetDefault("ReconnectDelay", 30)
+	vpr.SetDefault("HandleDelay", 5)
 	vpr.SetDefault("Notify.FailureThreshold", 3)
 	vpr.SetDefault("Notify.CooldownSeconds", 1800)
 	vpr.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -90,6 +92,7 @@ func loadConfig() (*config, error) {
 	vpr.BindEnv("DeleteSource", "DELETE_SOURCE")
 	vpr.BindEnv("ArchiveMailbox", "ARCHIVE_MAILBOX")
 	vpr.BindEnv("ReconnectDelay", "RECONNECT_DELAY")
+	vpr.BindEnv("HandleDelay", "HANDLE_DELAY")
 	vpr.BindEnv("Notify.FailureThreshold", "NOTIFY_FAILURE_THRESHOLD")
 	vpr.BindEnv("Notify.CooldownSeconds", "NOTIFY_COOLDOWN_SECONDS")
 	vpr.BindEnv("Notify.DingTalk.WebhookUrl", "DINGTALK_WEBHOOK_URL")
@@ -119,6 +122,11 @@ func loadConfig() (*config, error) {
 		account.DeleteSource = cfg.DeleteSource
 		account.ArchiveMailbox = cfg.ArchiveMailbox
 		account.ReconnectDelay = cfg.ReconnectDelay
+		if account.HandleDelay != nil {
+			account.handleDelay = *account.HandleDelay
+		} else {
+			account.handleDelay = cfg.HandleDelay
+		}
 	}
 	return &cfg, nil
 }

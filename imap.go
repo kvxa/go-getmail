@@ -80,12 +80,14 @@ type fetchConfig struct {
 	DeleteSource   bool
 	ArchiveMailbox string
 	ReconnectDelay int
+	HandleDelay    *int
 	Source         fetchSource
 	Target         fetchTarget
 
-	state fetchState
-	total uint64
-	ctx   context.Context
+	state       fetchState
+	total       uint64
+	ctx         context.Context
+	handleDelay int
 
 	notifier        *notifier
 	failureCount    int
@@ -270,16 +272,60 @@ func (c *fetchConfig) watch() error {
 	go func() {
 		errors <- c.Source.idle.IdleWithFallback(ctx.Done(), 0)
 	}()
+
+	var timer *time.Timer
+	var timerC <-chan time.Time
+	stopTimer := func() {
+		if timer == nil {
+			return
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer = nil
+		timerC = nil
+	}
+	defer stopTimer()
+
+	scheduleHandle := func() {
+		delay := time.Duration(c.handleDelay) * time.Second
+		if timer == nil {
+			c.log().Infof("Waiting %s before handling", delay)
+			timer = time.NewTimer(delay)
+			timerC = timer.C
+			return
+		}
+		c.log().Infof("Resetting handle delay to %s", delay)
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(delay)
+	}
+
 	for {
 		select {
 		case update := <-c.Source.updates:
 			c.log().Infof("New update: %#v", update)
-			_, ok := update.(*client.MailboxUpdate)
-			if ok {
-				err := c.handle()
-				if err != nil {
+			if _, ok := update.(*client.MailboxUpdate); !ok {
+				continue
+			}
+			if c.handleDelay <= 0 {
+				if err := c.handle(); err != nil {
 					return messageHandlingError{err: err}
 				}
+				continue
+			}
+			scheduleHandle()
+		case <-timerC:
+			stopTimer()
+			if err := c.handle(); err != nil {
+				return messageHandlingError{err: err}
 			}
 		case err := <-errors:
 			c.log().Warnf("Not idling anymore: %v", err)

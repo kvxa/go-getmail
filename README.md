@@ -41,6 +41,7 @@ The following YAML file is an example configuration with one transfer to be hand
 DeleteSource: true
 ArchiveMailbox: Archive
 ReconnectDelay: 30
+HandleDelay: 5
 
 Notify:
   FailureThreshold: 3
@@ -56,6 +57,7 @@ Notify:
 Accounts:
 
 - Name: Test account
+  HandleDelay: 30
   Source:
     IMAP:
       Server: imap-source.example.com:993
@@ -77,14 +79,19 @@ can be overridden with environment variables, for example `DELETE_SOURCE=false`
 or `ARCHIVE_MAILBOX=Archive` when running in Docker.
 `ReconnectDelay` controls how many seconds to wait before reconnecting after an
 IMAP IDLE connection closes, and can be overridden with `RECONNECT_DELAY`.
-Connection failure, recovery, and message handling failure notifications can be
-sent to DingTalk and Telegram robots. DingTalk uses `Notify.DingTalk.WebhookUrl`
-and `Notify.DingTalk.Secret`. Telegram uses `Notify.Telegram.BotToken`,
-`Notify.Telegram.ChatId`, and optional `Notify.Telegram.ApiEndpoint` for a
-custom Bot API endpoint. These options can be overridden with
-`DINGTALK_WEBHOOK_URL`, `DINGTALK_SECRET`, `TELEGRAM_BOT_TOKEN`,
-`TELEGRAM_CHAT_ID`, `TELEGRAM_API_ENDPOINT`, `NOTIFY_FAILURE_THRESHOLD`, and
-`NOTIFY_COOLDOWN_SECONDS`.
+`HandleDelay` waits the given seconds after a mailbox update before copying
+messages, so server-side filter rules on the source account can finish first.
+The global default is `5` seconds and can be overridden with `HANDLE_DELAY`.
+Each account may set its own `HandleDelay`; omit it to inherit the global value,
+or set `0` to handle updates immediately. Additional mailbox updates during the
+wait reset the timer. Connection failure, recovery, and message handling failure
+notifications can be sent to DingTalk and Telegram robots. DingTalk uses
+`Notify.DingTalk.WebhookUrl` and `Notify.DingTalk.Secret`. Telegram uses
+`Notify.Telegram.BotToken`, `Notify.Telegram.ChatId`, and optional
+`Notify.Telegram.ApiEndpoint` for a custom Bot API endpoint. These options can
+be overridden with `DINGTALK_WEBHOOK_URL`, `DINGTALK_SECRET`,
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_API_ENDPOINT`,
+`NOTIFY_FAILURE_THRESHOLD`, and `NOTIFY_COOLDOWN_SECONDS`.
 
 Save this file in one of the following locations and run `./go-getmail`:
 
