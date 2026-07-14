@@ -43,6 +43,9 @@ ArchiveMailbox: Archive
 ReconnectDelay: 30
 HandleDelay: 5
 
+Metrics:
+  ListenAddress: ":9090"
+
 Notify:
   FailureThreshold: 3
   CooldownSeconds: 1800
@@ -84,14 +87,24 @@ messages, so server-side filter rules on the source account can finish first.
 The global default is `5` seconds and can be overridden with `HANDLE_DELAY`.
 Each account may set its own `HandleDelay`; omit it to inherit the global value,
 or set `0` to handle updates immediately. Additional mailbox updates during the
-wait reset the timer. Connection failure, recovery, and message handling failure
-notifications can be sent to DingTalk and Telegram robots. DingTalk uses
-`Notify.DingTalk.WebhookUrl` and `Notify.DingTalk.Secret`. Telegram uses
-`Notify.Telegram.BotToken`, `Notify.Telegram.ChatId`, and optional
-`Notify.Telegram.ApiEndpoint` for a custom Bot API endpoint. These options can
-be overridden with `DINGTALK_WEBHOOK_URL`, `DINGTALK_SECRET`,
-`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_API_ENDPOINT`,
-`NOTIFY_FAILURE_THRESHOLD`, and `NOTIFY_COOLDOWN_SECONDS`.
+wait reset the timer. When `Metrics.ListenAddress` is set, the process exposes
+Prometheus metrics at `/metrics` and health endpoints on the same address:
+`/healthz` for liveness, `/readyz` for readiness, and `/health` for a detailed
+JSON status. Readiness is successful only when every account is in
+`connected`, `watching`, or `handling` state. Metrics include numeric
+`mail_account_state` and labeled `mail_account_state_info{state="watching"}`.
+On connect, the first mailbox snapshot only triggers a copy when the mailbox
+already contains messages; empty mailboxes skip that bootstrap run. Mailbox
+updates that arrive while a copy is in progress are queued and handled again
+afterward. Connection failure, recovery, and
+message handling failure notifications can be sent to DingTalk and Telegram
+robots. DingTalk uses `Notify.DingTalk.WebhookUrl` and
+`Notify.DingTalk.Secret`. Telegram uses `Notify.Telegram.BotToken`,
+`Notify.Telegram.ChatId`, and optional `Notify.Telegram.ApiEndpoint` for a
+custom Bot API endpoint. These options can be overridden with
+`DINGTALK_WEBHOOK_URL`, `DINGTALK_SECRET`, `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_CHAT_ID`, `TELEGRAM_API_ENDPOINT`, `NOTIFY_FAILURE_THRESHOLD`, and
+`NOTIFY_COOLDOWN_SECONDS`.
 
 Save this file in one of the following locations and run `./go-getmail`:
 

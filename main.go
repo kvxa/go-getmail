@@ -21,8 +21,11 @@ package main
 import (
 	"context"
 	"net/http"
+	"os"
+	"os/signal"
 	"runtime"
 	"sync"
+	"syscall"
 
 	"github.com/heroku/rollrus"
 	"github.com/prometheus/client_golang/prometheus"
@@ -55,13 +58,6 @@ func main() {
 		log.Warn("Errors will be reported to rollbar.com!")
 	}
 
-	if cfg.Metrics != nil && cfg.Metrics.ListenAddress != "" {
-		cc := NewCollector(cfg)
-		prometheus.MustRegister(cc)
-		http.Handle("/metrics", promhttp.Handler())
-		go http.ListenAndServe(cfg.Metrics.ListenAddress, nil)
-	}
-
 	mqttlock := &sync.Mutex{}
 	mqttopts := mqtt.NewClientOptions()
 	if cfg.Broker != nil {
@@ -76,18 +72,42 @@ func main() {
 
 	runtime.GC()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if cfg.Metrics != nil && cfg.Metrics.ListenAddress != "" {
+		mux := newHealthMux(ctx, cfg)
+		cc := NewCollector(cfg)
+		prometheus.MustRegister(cc)
+		mux.Handle("/metrics", promhttp.Handler())
+		go func() {
+			log.Infof("HTTP metrics/health listening on %s", cfg.Metrics.ListenAddress)
+			if err := http.ListenAndServe(cfg.Metrics.ListenAddress, mux); err != nil {
+				log.Errorf("HTTP server stopped: %v", err)
+			}
+		}()
+	}
 
 	notify := newNotifier(cfg.Notify)
+	var wg sync.WaitGroup
 	for _, c := range cfg.Accounts {
 		c.ctx = ctx
 		c.notifier = notify
 		c.mqttopts = mqttopts
 		c.mqttlock = mqttlock
 		c.log().Infof("%s --> %s", c.Source.Server, c.Target.Server)
-		go c.run()
+		wg.Add(1)
+		go func(c *fetchConfig) {
+			defer wg.Done()
+			if err := c.run(); err != nil && ctx.Err() == nil {
+				c.log().Error(err)
+			}
+		}(c)
 	}
 
 	<-ctx.Done()
+	log.Info("Shutdown signal received, waiting for accounts to stop")
+	stop()
+	wg.Wait()
+	log.Info("Shutdown complete")
 }

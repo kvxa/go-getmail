@@ -75,6 +75,29 @@ const (
 	shutdownState   = (fetchState)(1 << 4)
 )
 
+func stateName(state fetchState) string {
+	switch state {
+	case initialState:
+		return "initial"
+	case connectingState:
+		return "connecting"
+	case connectedState:
+		return "connected"
+	case watchingState:
+		return "watching"
+	case handlingState:
+		return "handling"
+	case shutdownState:
+		return "shutdown"
+	default:
+		return "unknown"
+	}
+}
+
+func shouldHandleBootstrap(messages uint32) bool {
+	return messages > 0
+}
+
 type fetchConfig struct {
 	Name           string
 	DeleteSource   bool
@@ -172,7 +195,7 @@ func (s *fetchSource) initIDLE() error {
 	if err != nil {
 		return err
 	}
-	updates := make(chan client.Update, 1)
+	updates := make(chan client.Update, 32)
 	updates <- update
 
 	s.idle = idle.NewClient(s.idleconn)
@@ -308,15 +331,60 @@ func (c *fetchConfig) watch() error {
 		timer.Reset(delay)
 	}
 
+	bootstrap := true
+	pending := false
+	handling := false
+
+	runHandle := func() error {
+		for {
+			handling = true
+			err := c.handle()
+			handling = false
+			if err != nil {
+				return err
+			}
+			if !pending {
+				return nil
+			}
+			pending = false
+			c.log().Info("Pending mailbox update after handle")
+			if c.handleDelay > 0 {
+				scheduleHandle()
+				return nil
+			}
+		}
+	}
+
 	for {
 		select {
+		case <-ctx.Done():
+			c.log().Info("Shutdown requested, stopping idle watch")
+			return ctx.Err()
 		case update := <-c.Source.updates:
 			c.log().Infof("New update: %#v", update)
-			if _, ok := update.(*client.MailboxUpdate); !ok {
+			mailboxUpdate, ok := update.(*client.MailboxUpdate)
+			if !ok {
+				continue
+			}
+			if bootstrap {
+				bootstrap = false
+				var messages uint32
+				if mailboxUpdate.Mailbox != nil {
+					messages = mailboxUpdate.Mailbox.Messages
+				}
+				if !shouldHandleBootstrap(messages) {
+					c.log().Info("Skipping bootstrap handle for empty mailbox")
+					continue
+				}
+				c.log().Infof("Bootstrap mailbox has %d messages, scheduling handle", messages)
+			}
+			if handling {
+				pending = true
+				c.log().Info("Mailbox update during handle, marked pending")
 				continue
 			}
 			if c.handleDelay <= 0 {
-				if err := c.handle(); err != nil {
+				if err := runHandle(); err != nil {
 					return messageHandlingError{err: err}
 				}
 				continue
@@ -324,7 +392,11 @@ func (c *fetchConfig) watch() error {
 			scheduleHandle()
 		case <-timerC:
 			stopTimer()
-			if err := c.handle(); err != nil {
+			if handling {
+				pending = true
+				continue
+			}
+			if err := runHandle(); err != nil {
 				return messageHandlingError{err: err}
 			}
 		case err := <-errors:
@@ -507,15 +579,21 @@ func isMailboxExistsError(err error) bool {
 }
 
 func (c *fetchConfig) run() error {
+	defer c.close()
+
 	for {
 		select {
 		case <-c.ctx.Done():
+			c.log().Info("Account stopped")
 			return c.ctx.Err()
 		default:
 		}
 
 		err := c.init()
 		if err != nil {
+			if c.ctx.Err() != nil {
+				return c.ctx.Err()
+			}
 			c.log().Error(err)
 			c.notifyConnectionFailure(err)
 			c.close()
@@ -526,6 +604,9 @@ func (c *fetchConfig) run() error {
 
 		err = c.watch()
 		if err != nil {
+			if c.ctx.Err() != nil {
+				return c.ctx.Err()
+			}
 			c.log().Error(err)
 			var handlingErr messageHandlingError
 			if errors.As(err, &handlingErr) {
@@ -533,6 +614,9 @@ func (c *fetchConfig) run() error {
 			}
 		}
 		c.close()
+		if c.ctx.Err() != nil {
+			return c.ctx.Err()
+		}
 		c.waitReconnect()
 	}
 }
@@ -555,7 +639,8 @@ func (c *fetchConfig) waitReconnect() {
 
 func (c *fetchConfig) log() *log.Entry {
 	return log.WithFields(log.Fields{
-		"name":  c.Name,
-		"state": c.state,
+		"name":       c.Name,
+		"state":      c.state,
+		"state_name": stateName(c.state),
 	})
 }

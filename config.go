@@ -79,7 +79,15 @@ type config struct {
 }
 
 func loadConfig() (*config, error) {
-	vpr := viper.GetViper()
+	configFile := ""
+	if len(os.Args) > 1 {
+		configFile = os.Args[1]
+	}
+	return loadConfigFrom(configFile)
+}
+
+func loadConfigFrom(configFile string) (*config, error) {
+	vpr := viper.New()
 	vpr.SetConfigName("go-getmail")
 	vpr.SetDefault("DeleteSource", true)
 	vpr.SetDefault("ArchiveMailbox", "Archive")
@@ -103,8 +111,8 @@ func loadConfig() (*config, error) {
 	vpr.AddConfigPath("/etc/go-getmail/")
 	vpr.AddConfigPath("$HOME/.go-getmail")
 	vpr.AddConfigPath(".")
-	if len(os.Args) > 1 {
-		vpr.SetConfigFile(os.Args[1])
+	if configFile != "" {
+		vpr.SetConfigFile(configFile)
 	}
 
 	err := vpr.ReadInConfig()
