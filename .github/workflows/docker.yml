@@ -8,6 +8,8 @@ on:
   push:
     branches:
       - master
+    tags:
+      - "v*"
 
 env:
   IMAGE_NAME: ${{ github.event.repository.name }}
@@ -24,11 +26,22 @@ jobs:
           username: ${{ secrets.SWR_USERNAME }}
           password: ${{ secrets.SWR_PASSWORD }}
 
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.SWR_REGISTRY }}/${{ secrets.SWR_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ${{ secrets.SWR_REGISTRY }}/${{ secrets.SWR_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
-            ${{ secrets.SWR_REGISTRY }}/${{ secrets.SWR_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 ...
